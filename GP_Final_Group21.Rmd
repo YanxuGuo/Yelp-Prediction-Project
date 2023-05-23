@@ -1,0 +1,272 @@
+
+```{r message=FALSE, warning=FALSE}
+library(readr)
+library(dplyr)
+library(tm)
+library(SnowballC)
+library(stringr)
+require(quanteda)
+library(qdap)
+```
+
+```{r}
+yelp <- read.csv("Yelp_train.csv")
+yelp_test <- read.csv("Yelp_test.csv")
+yelp_validate <- read.csv("Yelp_validate.csv")
+yelp_out <- rbind(yelp_test,yelp_validate)
+```
+
+```{r}
+# Some basic data cleaning
+
+# convert text into actual strings
+yelp$text <- as.character(yelp$text)
+yelp_out$text <- as.character(yelp_out$text)
+yelp$categories <- as.character(yelp$categories)
+yelp_out$categories <- as.character(yelp_out$categories)
+
+# Refactorize yelp_out city after binding validation and test data
+yelp_out$city <- as.character(yelp_out$city)
+yelp_out$city <- factor(yelp_out$city)
+
+# Fix date variable into actual dates
+yelp$date <- as.Date(yelp$date)
+yelp_out$date <- as.Date(yelp_out$date)
+corpus<-Corpus(VectorSource(yelp$text))
+# tolowercase
+corpus = tm_map(corpus, PlainTextDocument)
+corpus = tm_map(corpus, tolower)
+#Removing Punctuation
+corpus = tm_map(corpus, removePunctuation)
+#Removing Stopwords
+corpus = tm_map(corpus, removeWords, c("cloth", stopwords("english")))
+#Stemming
+corpus = tm_map(corpus, stemDocument)
+# Create Document Term Matrix
+frequencies = DocumentTermMatrix(corpus)
+sparse = removeSparseTerms(frequencies, 0.999)
+tSparse = as.data.frame(as.matrix(sparse))
+colnames(tSparse) = make.names(colnames(tSparse))
+#Find top 2100 frequency terms
+freq= freq_terms(as.list(corpus), top = 2100)
+freq<-freq[,1]
+```
+
+
+```{r}
+#To find the top high frequencies phrases with not. Those phrases are saved as not.
+#text = yelp$text
+#text = as.character(text)
+#word = tokens(text, remove_punct = TRUE)
+#uniword = tokens_ngrams(word, n = 1)
+#wordnot = tokens_compound(word, pattern = phrase('not *')) #find word combined with "not"
+#wordnot = tokens_select(wordnot, pattern = phrase('not_*'))
+#wordnot = dfm(wordnot)
+#notfreq = textstat_frequency(wordnot)
+#notfreq = data.frame(notfreq) 
+```
+
+```{r}
+not<-c("not a","not the","not sure","not too","not be","not to","not have","not_as","not only","not even","not bad","not great","not good", "not that","not worth","not really","not much","not like","not my","not just","not in","not disappoint","not recommend","not going","not impressed","not for","not disappointed","not go","not been","not at","not get","not quite","not enough","not what","not one","not overly","not on","not come","not an","not busy","not being","not your","not eat", "not order","not all", "not know", "not something","not want","not return","not super","not make", "not i","not take","not fresh","not taste","not many","not greasy","not amazing", "not hot","not particularly","not seem", "not exactly", "not spicy","not having", "not over", "not getting","not always","not give","not had","not cheap","not feel", "not from","not there","not try","not terrible", "not nearly","not authentic","not this","not necessarily","not expecting","not see","not because","not happy", "not find","not up", "not saying","not spectacular","not here","not care", "not enjoy","not but","not available","not do","not yet","not live","not cooked","not once","not their",  "not usually", "not let","not well",  "not giving", "not overwhelming","not it","not made", "not stop", "not believe", "not cool",  "not open","not anything","not friendly","not look","not our", "not leave", "not fancy", "not coming","not dry","not into", "not tried","not expect","not offer","not crowded","not terribly","not better","not outstanding", "not crispy", "not think","not work","not huge","not 5","not overpowering", "not trying","not understand","not impressive","not actually","not with", "not need","not memorable","not knowing","not crazy","not out", "not overbearing","not everyone","not accept","not we","not when","not waste","not say","not more", "not finish","not bring","not use","not and", "not feeling","not normally","not serve","not wanting","not tell","not miss", "not entirely","not skimp","not any","not complaining","not ask","not ordering", "not horrible","not looking","not true","not hesitate","not used","not wait","not interested","not recommended","not heavy","not real","not familiar",  "not seasoned","not least","not exceptional","not packed","not hard","not deliver","not ever","not some","not including","not given","not eating","not by","not they","not often", "not able", "not taking","not ready", "not served", "not put",  "not full", "not far" ,"not love","not easy", "not working","not how" ,"not fantastic","not overcooked", "not about", "not forget","not you","not received","not soggy","not ideal","not kidding" , "not regret","not bother","not clean","not if","not_perfect","not_doing","not salty","not big","not found","not large","not pay", "not receive", "not acceptable","not check", "not excellent","not match", "not done","not offered" ,"not completely","not every", "not mind", "not asking","not surprised","not expensive","not it's","not listed","not of", "not willing","not allow","not right", "not especially","not cold","not sit", "not supposed","not likely", "not warm","not happen","not sweet","not $","not flavorful")
+```
+
+
+```{r}
+#Select top 2100 high frequency words 
+traindata<-sort(freq, decreasing = TRUE)
+traindata1<-traindata[1:2100]
+predictor<-names(traindata1)
+data1<-tSparse[predictor]
+```
+
+```{r}
+#Generate predictors for model
+data<-yelp[,-c(1,3:4,8,12)]
+ori_words <- colnames(data)
+new <- freq[which(!(freq%in%ori_words))]
+ngram = c("but i", "was very", "out of", "my favorite", "good but","come back", "ice cream", "old fashioned")
+new1<-c(new,ngram,not)
+new_P<- matrix(0, nrow(yelp), length(new1))
+colnames(new_P) <- new1
+for (i in 1:length(new1)){
+ new_P[,i] <- str_count(yelp$text, regex(new1[i], ignore_case=T)) 
+}
+# adding new variable to the training data
+data[colnames(new_P)]<-new_P
+data$nchar<-log(yelp$nchar+1)
+data$nword<-log(yelp$nword+1)
+
+# Changing the word frequency higher than 1 to 1 in the training data.
+once = data
+for( i in colnames(data)[200:length(colnames(data))]){
+  once[,i][once[,i] > 1] = 1
+}
+
+#Build the model
+#model <- lm(stars ~ ., data = once)
+#plot(model)
+# this is not the best model
+```
+
+```{r}
+# Color for graph drawing
+library(RColorBrewer)
+mypalette<-brewer.pal(6,"Set1")
+
+# Plots for Lasso Regression
+library(glmnet)
+Xmat <- as.matrix(data[,-1])
+Ymat <- data$stars
+yelp.lasso <- glmnet(Xmat, Ymat)
+plot(yelp.lasso, xvar="lambda",label=TRUE,lwd=3,col=mypalette,main = "Lasso Regression")
+abline(h=0,lwd=1,lty=2,col="grey")
+legend("topright",lwd = 3,lty = 1,legend = colnames(Xmat),col = mypalette, cex = 0.5)
+
+# Build the model based on Lasso Regression 
+set.seed(1)
+#lasso.cv <- cv.glmnet(Xmat, Ymat, nfold = 5)
+#plot(lasso.cv)
+#lasso.cv$lambda.min
+#coef(lasso.cv, s = "lambda.min")
+#slope_lasso <- coef(lasso.cv, s = "lambda.min")[-1]
+#selected <- which(slope_lasso!=0)
+```
+
+```{r}
+# Lasso Regression
+#Using biglasso for its fast speed
+library(bigmemory)
+library(biglasso)
+x_train_model = as.matrix(once[,-1])
+y_train_model = as.matrix(yelp$stars)
+x.big_train_model = as.big.matrix(x_train_model)
+biglasso_cv = cv.biglasso(x.big_train_model, y_train_model, nfolds = 5)
+```
+
+```{r}
+#plot the cv
+plot(biglasso_cv)
+lambda_optimal = biglasso_cv$lambda.min
+biglasso_optimal = biglasso(x.big_train_model, y_train_model, lambda = lambda_optimal)
+```
+
+```{r}
+slope_lasso <- coef(biglasso_cv, s = "lambda.min")[-1]
+selected <- which(slope_lasso!=0)
+lasso.words <- colnames(x_train_model)[selected]
+sel <- x_train_model[,selected]
+stars <- matrix(0, nrow(yelp), 1)
+sel <- cbind(stars, sel)
+colnames(sel)[1] <- "stars"
+sel[,"stars"] <- yelp[,"stars"]
+```
+
+
+
+```{r}
+model_lasso <- lm(stars~., data = as.data.frame(sel))
+plot(model_lasso)
+```
+
+
+```{r add predictors to test and validate data}
+# Add predictors to test data and validate data
+test_words<-new1
+test.pred <- matrix(0, nrow(yelp_out), length(test_words))
+colnames(test.pred) <- test_words
+for (i in 1:length(test_words)){
+  test.pred[,i] <- str_count(yelp_out$text, regex(test_words[i], ignore_case=T))
+}
+
+lasso.test<-yelp_out[,-c(1:3,7,11)]
+lasso.test[colnames(test.pred)] <- test.pred
+lasso.test$nchar<-log(yelp_out$nchar+1)
+lasso.test$nword<-log(yelp_out$nword+1)
+lasso.test$sentiment<-yelp_out$sentiment
+
+#Changing the word frequency higher than 1 to 1.
+twice=lasso.test
+for( i in colnames(data)[199:length(colnames(lasso.test))]){
+  twice[,i][twice[,i] > 1] = 1}
+twice
+lasso.test.bigmatrix<-as.big.matrix(twice)
+```
+
+```{r write csv, message=FALSE}
+# Write csv
+Expected=predict(biglasso_optimal, X=lasso.test.bigmatrix)
+
+star_out <- data.frame(ID=yelp_out$Id, Expected=Expected[,1])
+
+# Make the value larger than 5 "5", smaller than 1 "1"
+for (i in (1:nrow(yelp_out))){
+  value = star_out$Expected[i]
+  if(is.na(value)) {
+   star_out$Expected[i] =3
+  }
+  if (value <1){
+    star_out$Expected[i] =1
+  }
+  if (value >5){
+   star_out$Expected[i] = 5
+  }
+}
+
+#Changing thresholds by law of large numbers
+table(round(star_out$Expected))/nrow(yelp_out)
+table(round(yelp$stars))/nrow(yelp)
+star_out$Expected[which(star_out$Expected>=1.5&star_out$Expected<=2.25)]=1.49
+star_out$Expected[which(star_out$Expected>=2.5&star_out$Expected<=2.89)]=2.49
+star_out$Expected[which(star_out$Expected>=4.0&star_out$Expected<=4.29)]=4.51
+
+table(round(star_out$Expected))/nrow(yelp_out)
+table(round(yelp$stars))/nrow(yelp)
+write.csv(star_out, file='GP_Group21.csv', row.names=FALSE)
+```
+
+
+```{r}
+#Most frequent predictors grouped by stars
+t1 = data[which(data[,"stars"] == 1),]
+t1 = t1[,-c(1,5:7)]
+t1_words = names(sort(colSums(t1), decreasing = T)[1:100])
+t2 = data[which(data[,"stars"] == 2),]
+t2 = t2[,-c(1,5:7)]
+t2_words = names(sort(colSums(t2), decreasing = T)[1:100])
+
+t3 = data[which(data[,"stars"] == 3),]
+t3 = t3[,-c(1,5:7)]
+t3_words = names(sort(colSums(t3), decreasing = T)[1:100])
+
+t4 = data[which(data[,"stars"] == 4),]
+t4 = t4[,-c(1,5:7)]
+t4_words = names(sort(colSums(t4), decreasing = T)[1:100])
+
+t5 = data[which(data[,"stars"] == 5),]
+t5 = t5[,-c(1,5:7)]
+t5_words = names(sort(colSums(t5), decreasing = T)[1:100])
+
+#Remove words that are used commonly regardless of stars
+common_words1 = t1_words[which(t1_words%in%t4_words | t1_words%in%t5_words)]
+common_words2 = t2_words[which(t2_words%in%t4_words | t2_words%in%t5_words)]
+common_words2 = common_words2[which(!common_words2%in%common_words1)]
+common_words = combine(common_words1, common_words2)
+
+t1_uw = t1_words[which(!t1_words%in%common_words)][1:10]
+t2_uw = t2_words[which(!t2_words%in%common_words)][1:10]
+t3_uw = t3_words[which(!t3_words%in%common_words)][1:10]
+t4_uw = t4_words[which(!t4_words%in%common_words)][1:10]
+t5_uw = t5_words[which(!t5_words%in%common_words)][1:10]
+
+m = matrix(c(t1_uw, t2_uw, t3_uw, t4_uw, t5_uw), nrow = 10, ncol = 5, byrow = F)
+colnames(m) = c("1 Star", "2 Star", "3 Star", "4 Star", "5 Star")
+rownames(m) = c(1:10)
+m = t(m)
+m
+```
+ 
+ 
+ 
+ 
+ 
+ 
